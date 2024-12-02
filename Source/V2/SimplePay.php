@@ -610,6 +610,18 @@ class SimplePayIpn extends Base
     protected $ipnReturnData = [];
     public $validationResult = false;
 
+    private function getallheaders(){
+
+        $headers = [];
+        foreach ($_SERVER as $name => $value) {
+            if (substr($name, 0, 5) === 'HTTP_') {
+                $headers[str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($name, 5)))))] = $value;
+            }
+        }
+        return $headers;
+
+    }
+
     /**
      * IPN validation
      *
@@ -619,24 +631,16 @@ class SimplePayIpn extends Base
      */
     public function isIpnSignatureCheck($content = '')
     {
-        if (!function_exists('getallheaders')) {
-            /**
-             * Getallheaders fon Nginx
-             *
-             * @return header
-             */
-            function getallheaders()
-            {
-                $headers = [];
-                foreach ($_SERVER as $name => $value) {
-                    if (substr($name, 0, 5) === 'HTTP_') {
-                        $headers[str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($name, 5)))))] = $value;
-                    }
-                }
-                return $headers;
-            }
+
+        $all_headers = [];
+
+        if(!function_exists('getallheaders')) {
+            $all_headers = $this->getallheaders();
+        } else {
+            $all_headers = getallheaders();
         }
-        $signature = $this->getSignatureFromHeader(getallheaders());
+
+        $signature = $this->getSignatureFromHeader($all_headers);
 
         foreach (json_decode($this->checkOrSetToJson($content)) as $key => $value) {
             $this->ipnContent[$key] = $value;
