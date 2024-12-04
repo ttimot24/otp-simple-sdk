@@ -83,6 +83,10 @@ class Base
         }
     }
 
+    public function getCurrentInterface(){
+        return $this->currentInterface;
+    }
+
     /**
      * Add unique config field
      *
