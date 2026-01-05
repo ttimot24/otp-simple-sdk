@@ -1,6 +1,6 @@
 <?php
 
-namespace Source\V2;
+namespace SimplePay\V2;
 
 /**
  *  Copyright (C) 2025 SimplePay Zrt.
