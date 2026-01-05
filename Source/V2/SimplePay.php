@@ -1,11 +1,9 @@
 <?php
 
-namespace Source\V2;
-
 /**
- *  Copyright (C) 2020 OTP Mobil Kft.
+ *  Copyright (C) 2025 SimplePay Zrt.
  *
- *  PHP version 7
+ *  PHP version 8.3
  *
  *  This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -22,8 +20,8 @@ namespace Source\V2;
  *
  * @category  SDK
  * @package   SimplePayV2
- * @author    SimplePay IT Support <itsupport@otpmobil.com>
- * @copyright 2020 OTP Mobil Kft.
+ * @author    SimplePay IT Support <itsupport@simplepay.com>
+ * @copyright 2025 SimplePay Zrt.
  * @license   http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
  * @link      http://simplepartner.hu/online_fizetesi_szolgaltatas.html
  */
@@ -34,7 +32,7 @@ namespace Source\V2;
  *
  * @category SDK
  * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
+ * @author   SimplePay IT Support <itsupport@simplepay.com>
  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
  */
@@ -48,25 +46,31 @@ class Base
     public $config = [];
     protected $headers = [];
     protected $hashAlgo = 'sha384';
-    public $sdkVersion = 'SimplePay_PHP_SDK_2.1.0_200825';
-    protected $logSeparator = '|';
-    protected $logContent = [];
-    protected $debugMessage = [];
-    protected $currentInterface = '';
+    public $sdkVersion = 'SimplePay_PHP_SDK_2.1.5_250731';
+    protected $transactionBase = [];
     protected $api = [
         'sandbox' => 'https://sandbox.simplepay.hu/payment',
         'live' => 'https://secure.simplepay.hu/payment'
-    ];
+        ];
     protected $apiInterface = [
         'start' => '/v2/start',
+		'starteam' => '/v2/starteam',
         'finish' => '/v2/finish',
         'refund' => '/v2/refund',
         'query' => '/v2/query',
-    ];
+		'transactioncancel' => '/v2/transactionCancel',
+        'startapplepay' => '/v2/startapplepay',
+        'doapplepay' => '/v2/doapplepay',
+        ];
+    protected $currentInterface = '';
     public $logTransactionId = 'N/A';
     public $logOrderRef = 'N/A';
     public $logPath = '';
-    protected $phpVersion = 7;
+    protected $logSeparator = '|';
+    protected $logContent = [];
+	public $returnData;
+    protected $phpVersion = 8;
+	protected $content;	
 
     /**
      * Constructor
@@ -79,14 +83,10 @@ class Base
         $ver = (float)phpversion();
         $this->logContent['phpVersion'] = $ver;
         if (is_numeric($ver)) {
-            if ($ver < 7.0) {
-                $this->phpVersion = 5;
+            if ($ver < $this->phpVersion) {
+                $this->phpVersion = $ver;
             }
         }
-    }
-
-    public function getCurrentInterface(){
-        return $this->currentInterface;
     }
 
     /**
@@ -105,13 +105,13 @@ class Base
         $this->config[$key] = $value;
     }
 
-    /**
-     * Add complete config array
-     *
-     * @param string $config Populated config array
-     *
-     * @return void
-     */
+     /**
+      * Add complete config array
+      *
+      * @param string $config Populated config array
+      *
+      * @return void
+      */
     public function addConfig($config = [])
     {
         foreach ($config as $configKey => $configValue) {
@@ -219,32 +219,35 @@ class Base
      */
     public function checkOrSetToJson($data = '')
     {
+        
         $json = '[]';
         //empty
         if ($data === '') {
             $json =  json_encode([]);
+            return $json;
         }
         //array
-        else if (is_array($data)) {
+        if (is_array($data)) {
             $json =  json_encode($data);
+            return $json;
         }
         //object
-        else if (is_object($data)) {
+        if (is_object($data)) {
             $json =  json_encode($data);
-        } else {
-            //json
-            $result = @json_decode($data);
-            if ($result !== null) {
-                $json =  $data;
-            }
-            //serialized
-            $result = @unserialize($data);
-            if ($result !== false) {
-                $json =  json_encode($result);
-            }
+            return $json;
         }
-
-        return $json;
+        //json
+        $result = json_decode($data);
+        if ($result !== null) {
+            $json =  $data;
+            return $json;
+        }
+        //serialized
+        $result = unserialize($data);
+        if ($result !== false) {
+            $json =  json_encode($result);
+            return $json;
+        }
     }
 
     /**
@@ -262,6 +265,9 @@ class Base
             'Content-type: application/json',
             'Signature: ' . $hash,
         ];
+		if (isset($this->config['SERVER_DATA']) && isset($this->config['SERVER_DATA']['HTTP_REFERER'])) {
+			$headers[] = 'Referer: ' . $this->config['SERVER_DATA']['HTTP_REFERER'];
+		}
         return $headers;
     }
 
@@ -276,7 +282,7 @@ class Base
     {
         $saltBase = '';
         $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        for ($i = 0; $i <= $length; $i++) {
+        for ($i=0; $i <= $length; $i++) {
             $saltBase .= substr($chars, rand(1, strlen($chars)), 1);
         }
         return hash('md5', $saltBase);
@@ -349,10 +355,21 @@ class Base
      */
     protected function setConfig()
     {
+        $this->setConfigAccountData();
+        $this->setConfigMixedData();
+    }
+
+     /**
+     * Set config account data
+     *
+     * @return void
+     */   
+    protected function setConfigAccountData() {
         if (isset($this->transactionBase['currency'])  && $this->transactionBase['currency'] != '') {
             $this->config['merchant'] = $this->config[$this->transactionBase['currency'] . '_MERCHANT'];
             $this->config['merchantKey'] = $this->config[$this->transactionBase['currency'] . '_SECRET_KEY'];
         } elseif (isset($this->config['merchantAccount'])) {
+            $key = '';
             foreach ($this->config as $configKey => $configValue) {
                 if ($configValue === $this->config['merchantAccount']) {
                     $key = $configKey;
@@ -363,7 +380,14 @@ class Base
             $this->config['merchant'] = $this->config[$this->transactionBase['currency'] . '_MERCHANT'];
             $this->config['merchantKey'] = $this->config[$this->transactionBase['currency'] . '_SECRET_KEY'];
         }
+    }
 
+    /**
+     * Set config mixed data
+     *
+     * @return void
+     */
+    protected function setConfigMixedData() {
         $this->config['api'] = 'live';
         if ($this->config['SANDBOX']) {
             $this->config['api'] = 'sandbox';
@@ -416,17 +440,18 @@ class Base
     {
         $this->prepare();
         $transaction = [];
+        $header = [];
 
         $this->logContent['callState2'] = 'REQUEST';
         $this->logContent['sendApiUrl'] = $this->config['apiUrl'];
         $this->logContent['sendContent'] = $this->content;
         $this->logContent['sendSignature'] = $this->config['computedHash'];
 
-        $commRresult = $this->runCommunication($this->config['apiUrl'], $this->content, $this->headers);
-
         $this->logContent['callState3'] = 'RESULT';
 
-        //call result
+        //call
+        $commRresult = $this->runCommunication($this->config['apiUrl'], $this->content, $this->headers);
+        //result
         $result = explode("\r\n", $commRresult);
         $transaction['responseBody'] = end($result);
 
@@ -447,18 +472,25 @@ class Base
 
         //fill transaction data
         if (is_object(json_decode($transaction['responseBody']))) {
-            foreach (json_decode($transaction['responseBody']) as $key => $value) {
+            foreach ($this->convertToArray(json_decode($transaction['responseBody'])) as $key => $value) {
                 $transaction[$key] = $value;
             }
         }
 
         if (isset($transaction['transactionId'])) {
             $this->logTransactionId = $transaction['transactionId'];
+        } elseif (isset($transaction['transactions']) && isset($transaction['transactions'][0])) {
+            if (isset($transaction['transactions'][0]['transactionId'])) {
+                $this->logTransactionId = $transaction['transactions'][0]['transactionId'];
+            }
         } elseif (isset($transaction['cardId'])) {
             $this->logTransactionId = $transaction['cardId'];
         }
+        
         if (isset($transaction['orderRef'])) {
             $this->logOrderRef = $transaction['orderRef'];
+        } elseif (isset($transaction['transactions'])) {
+            $this->logOrderRef = $transaction['transactions'][0]['orderRef'];
         }
 
         $this->returnData = $transaction;
@@ -471,15 +503,15 @@ class Base
 }
 
 
-/**
- * Start transaction
- *
- * @category SDK
- * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
- * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
- * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
- */
+ /**
+  * Start transaction
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
 class SimplePayStart extends Base
 {
     protected $currentInterface = 'start';
@@ -490,14 +522,14 @@ class SimplePayStart extends Base
         'currency' => '',
         'sdkVersion' => '',
         'methods' => [],
-    ];
+        ];
 
-    /**
-     * Send initial data to SimplePay API for validation
-     * The result is the payment link to where website has to redirect customer
-     *
-     * @return void
-     */
+     /**
+      * Send initial data to SimplePay API for validation
+      * The result is the payment link to where website has to redirect customer
+      *
+      * @return void
+      */
     public function runStart()
     {
         $this->execApiCall();
@@ -505,19 +537,116 @@ class SimplePayStart extends Base
 }
 
 
-/**
- * Back
- *
- * @category SDK
- * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
- * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
- * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
- */
+ /**
+  * Start EAM
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
+class SimplePayStartEam extends Base
+{
+    protected $currentInterface = 'starteam';
+    public $returnData = [];
+    public $transactionBase = [
+        'salt' => '',
+        'merchant' => '',
+        'orderRef' => '',
+        ];
+
+    /**
+     * Run finish
+     *
+     * @return array $result API response
+     */
+    public function runStartEam()
+    {
+        return $this->execApiCall();
+    }
+}
+
+
+ /**
+  * Start Apple Pay merchant validation
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
+class SimplePayStartApplePay extends Base
+{
+    protected $currentInterface = 'startapplepay';
+    public $transactionBase = [
+        'salt' => '',
+        'merchant' => '',
+        'orderRef' => '',
+        'currency' => '',
+        'domain' => '',
+        'sdkVersion' => '',
+        ];
+
+     /**
+      * Send initial data to SimplePay API for validation
+      *
+      * @return void
+      */
+    public function runStartApplePay()
+    {
+        $this->execApiCall();
+    }
+}
+
+
+ /**
+  * Do Apple Pay merchant transaction
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
+class SimplePayDoApplePay extends Base
+{
+    protected $currentInterface = 'doapplepay';
+    public $transactionBase = [
+        'salt' => '',
+        'merchant' => '',
+        'transactionId' => '',
+        'applePayToken' => [],
+        'sdkVersion' => ''
+        ];
+
+     /**
+      * Run Appl Pay trnsaction
+      *
+      * @return void
+      */
+    public function runDoApplePay()
+    {
+        $this->execApiCall();
+    }
+}
+
+
+ /**
+  * Back
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
 class SimplePayBack extends Base
 {
     protected $currentInterface = 'back';
     protected $notification = [];
+    protected $notificationFormated = '';
     public $request = [
         'rRequest' => '',
         'sRequest' => '',
@@ -528,17 +657,17 @@ class SimplePayBack extends Base
             'e' => 'N/A',
             'm' => 'N/A',
             'o' => 'N/A',
-        ]
-    ];
+            ]
+        ];
 
-    /**
-     * Validates CTRL variable
-     *
-     * @param string $rRequest Request data -> r
-     * @param string $sRequest Request data -> s
-     *
-     * @return boolean
-     */
+     /**
+      * Validates CTRL variable
+      *
+      * @param string $rRequest Request data -> r
+      * @param string $sRequest Request data -> s
+      *
+      * @return boolean
+      */
     public function isBackSignatureCheck($rRequest = '', $sRequest = '')
     {
         //request handling
@@ -564,6 +693,7 @@ class SimplePayBack extends Base
         $this->request['checkCtrlResult'] = false;
         if ($this->isCheckSignature($this->request['rJson'], $this->request['sRequest'])) {
             $this->request['checkCtrlResult'] = true;
+
         }
 
         //write log
@@ -584,11 +714,11 @@ class SimplePayBack extends Base
         return $this->notification;
     }
 
-    /**
-     * Formatted notification data of request
-     *
-     * @return string Notification in readable format
-     */
+     /**
+      * Formatted notification data of request
+      *
+      * @return string Notification in readable format
+      */
     public function getFormatedNotification()
     {
         $this->backNotification();
@@ -597,36 +727,27 @@ class SimplePayBack extends Base
 }
 
 
-/**
- * IPN
- *
- * @category SDK
- * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
- * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
- * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
- */
+ /**
+  * IPN
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
 class SimplePayIpn extends Base
 {
     protected $currentInterface = 'ipn';
-    protected $returnData = [];
+    public $returnData = [];
     protected $receiveDate = '';
     protected $ipnContent = [];
     protected $responseContent = '';
+    protected $confirmContent = [];
     protected $ipnReturnData = [];
+    protected $signature = '';
     public $validationResult = false;
-
-    private function getallheaders(){
-
-        $headers = [];
-        foreach ($_SERVER as $name => $value) {
-            if (substr($name, 0, 5) === 'HTTP_') {
-                $headers[str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($name, 5)))))] = $value;
-            }
-        }
-        return $headers;
-
-    }
+    protected $isGAHExists = true;
 
     /**
      * IPN validation
@@ -637,16 +758,7 @@ class SimplePayIpn extends Base
      */
     public function isIpnSignatureCheck($content = '')
     {
-
-        $all_headers = [];
-
-        if(!function_exists('getallheaders')) {
-            $all_headers = $this->getallheaders();
-        } else {
-            $all_headers = getallheaders();
-        }
-
-        $signature = $this->getSignatureFromHeader($all_headers);
+        $signature = $this->getIpnSignature();
 
         foreach (json_decode($this->checkOrSetToJson($content)) as $key => $value) {
             $this->ipnContent[$key] = $value;
@@ -681,7 +793,7 @@ class SimplePayIpn extends Base
             $this->confirmContent = 'UNSUCCESSFUL VALIDATION';
             $this->signature = 'UNSUCCESSFUL VALIDATION';
         } elseif ($this->validationResult) {
-            $this->ipnContent['receiveDate'] = @date("c", time());
+            $this->ipnContent['receiveDate'] = date("c", time());
             $this->confirmContent = json_encode($this->ipnContent);
             $this->signature = $this->getSignature($this->config['merchantKey'], $this->confirmContent);
         }
@@ -690,6 +802,28 @@ class SimplePayIpn extends Base
         $this->writeLog(['confirmSignature' => $this->signature, 'confirmContent' => $this->confirmContent]);
 
         return $this->validationResult;
+    }
+
+    /**
+     * Signature for IPN
+     *
+     * @return string
+     */
+    protected function getIpnSignature() {
+        $this->isGAHExists = function_exists('getallheaders');
+        if ($this->isGAHExists) {
+            $signature = $this->getSignatureFromHeader(getallheaders());
+        } elseif (!$this->isGAHExists) {
+            //Getallheaders fon Nginx
+            $headers = [];
+            foreach ($this->config['SERVER_DATA'] as $name => $value) {
+                if (substr($name, 0, 5) === 'HTTP_') {
+                    $headers[str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($name, 5)))))] = $value;
+                }
+            }
+            $signature = $this->getSignatureFromHeader($headers);
+        }
+        return $signature;
     }
 
     /**
@@ -704,7 +838,7 @@ class SimplePayIpn extends Base
             header('Content-type: application/json');
             header('Signature: ' . $this->ipnReturnData['signature']);
             print $this->ipnReturnData['confirmContent'];
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->writeLog(['ipnConfirm' => $e->getMessage()]);
             return false;
         }
@@ -730,14 +864,14 @@ class SimplePayIpn extends Base
  *
  * @category SDK
  * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
+ * @author   SimplePay IT Support <itsupport@simplepay.com>
  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
  */
 class SimplePayQuery extends Base
 {
     protected $currentInterface = 'query';
-    protected $returnData = [];
+    public $returnData = [];
     protected $transactionBase = [
         'salt' => '',
         'merchant' => ''
@@ -752,9 +886,10 @@ class SimplePayQuery extends Base
      */
     public function addSimplePayId($simplePayId = '')
     {
-        if (!isset($this->transactionBase['transactionIds']) || count($this->transactionBase['transactionIds']) === 0) {
+        if (!isset($this->transactionBase['transactionIds'])) {
+            $this->transactionBase['transactionIds'] = [];
             $this->logTransactionId = $simplePayId;
-        }
+        } 
         $this->transactionBase['transactionIds'][] = $simplePayId;
     }
 
@@ -767,9 +902,10 @@ class SimplePayQuery extends Base
      */
     public function addMerchantOrderId($merchantOrderId = '')
     {
-        if (!isset($this->transactionBase['orderRefs']) || count($this->transactionBase['orderRefs']) === 0) {
+        if (!isset($this->transactionBase['orderRefs'])) {
+            $this->transactionBase['orderRefs'] = [];
             $this->logOrderRef = $merchantOrderId;
-        }
+        } 
         $this->transactionBase['orderRefs'][] = $merchantOrderId;
     }
 
@@ -785,26 +921,26 @@ class SimplePayQuery extends Base
 }
 
 
-/**
- * Refund
- *
- * @category SDK
- * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
- * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
- * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
- */
+ /**
+  * Refund
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
 class SimplePayRefund extends Base
 {
     protected $currentInterface = 'refund';
-    protected $returnData = [];
+    public $returnData = [];
     public $transactionBase = [
         'salt' => '',
         'merchant' => '',
         'orderRef' => '',
         'transactionId' => '',
         'currency' => '',
-    ];
+        ];
 
     /**
      * Run refund
@@ -813,32 +949,38 @@ class SimplePayRefund extends Base
      */
     public function runRefund()
     {
-        if ($this->transactionBase['orderRef'] == '') {
+        if ($this->transactionBase['orderRef'] === '') {
             unset($this->transactionBase['orderRef']);
+            if ($this->transactionBase['transactionId'] !== '') {
+                $this->logTransactionId = $this->transactionBase['transactionId'];
+            }
         }
+
         if ($this->transactionBase['transactionId'] == '') {
             unset($this->transactionBase['transactionId']);
+            if ($this->transactionBase['orderRef'] !== '') {
+                $this->logOrderRef = $this->transactionBase['orderRef'];
+            }
         }
-        $this->logTransactionId = @$this->transactionBase['transactionId'];
-        $this->logOrderRef = @$this->transactionBase['orderRef'];
+
         return $this->execApiCall();
     }
 }
 
 
-/**
- * Finish
- *
- * @category SDK
- * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
- * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
- * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
- */
+ /**
+  * Finish
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
 class SimplePayFinish extends Base
 {
     protected $currentInterface = 'finish';
-    protected $returnData = [];
+    public $returnData = [];
     public $transactionBase = [
         'salt' => '',
         'merchant' => '',
@@ -847,7 +989,7 @@ class SimplePayFinish extends Base
         'originalTotal' => '',
         'approveTotal' => '',
         'currency' => '',
-    ];
+        ];
 
     /**
      * Run finish
@@ -862,11 +1004,55 @@ class SimplePayFinish extends Base
 
 
 /**
+  * Cancel of transaction
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
+class SimplePayTransactionCancel extends Base
+{
+    protected $currentInterface = 'transactioncancel';
+    public $returnData = [];
+    public $transactionBase = [
+        'salt' => '',
+        'merchant' => '',
+        ];
+
+    /**
+     * Run transaction cancel
+     *
+     * @return array $result API response
+     */
+    public function runTransactionCancel()
+    {
+        if ($this->transactionBase['orderRef'] === '') {
+            unset($this->transactionBase['orderRef']);
+            if ($this->transactionBase['transactionId'] !== '') {
+                $this->logTransactionId = $this->transactionBase['transactionId'];
+            }
+        }
+
+        if ($this->transactionBase['transactionId'] == '') {
+            unset($this->transactionBase['transactionId']);
+            if ($this->transactionBase['orderRef'] !== '') {
+                $this->logOrderRef = $this->transactionBase['orderRef'];
+            }
+        }
+
+        return $this->execApiCall();
+    }
+}
+
+
+/**
  * Hash generation for Signature
  *
  * @category SDK
  * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
+ * @author   SimplePay IT Support <itsupport@simplepay.com>
  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
  */
@@ -914,20 +1100,19 @@ trait Signature
         $this->config['computedSignature'] = $this->getSignature($this->config['merchantKey'], $data);
         $this->logContent['signatureToCheck'] = $signatureToCheck;
         $this->logContent['computedSignature'] = $this->config['computedSignature'];
-        try {
-            if ($this->phpVersion === 7) {
-                if (!hash_equals($this->config['computedSignature'], $signatureToCheck)) {
-                    throw new \Exception('fail');
-                }
-            } elseif ($this->phpVersion === 5) {
-                if ($this->config['computedSignature'] !== $signatureToCheck) {
-                    throw new \Exception('fail');
-                }
+
+        if ($this->phpVersion >= 7) {
+            if (!hash_equals($this->config['computedSignature'], $signatureToCheck)) {
+                $this->logContent['hashCheckResult'] = 'fail';
+                return false;
             }
-        } catch (\Exception $e) {
-            $this->logContent['hashCheckResult'] = $e->getMessage();
-            return false;
+        } elseif ($this->phpVersion < 7) {
+            if ($this->config['computedSignature'] !== $signatureToCheck) {
+                $this->logContent['hashCheckResult'] = 'fail';
+                return false;
+            }
         }
+        
         $this->logContent['hashCheckResult'] = 'success';
         return true;
     }
@@ -952,26 +1137,29 @@ trait Signature
 }
 
 
-/**
- * Communication
- *
- * @category SDK
- * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
- * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
- * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
- */
+ /**
+  * Communication
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
 trait Communication
 {
 
+	protected $result;
+	protected $curlInfo;
+	
     /**
      * Handler for cURL communication
      *
-     * @param string $url     URL
-     * @param string $data    Sending data to URL
-     * @param string $headers Header information for POST
+     * @param  string $url     URL
+     * @param  string $data    Sending data to URL
+     * @param  string $headers Header information for POST
      *
-     * @return array Result of cURL communication
+     * @return string Result of cURL communication
      */
     public function runCommunication($url = '', $data = '', $headers = [])
     {
@@ -992,28 +1180,26 @@ trait Communication
         $result = curl_exec($curlData);
         $this->result = $result;
         $this->curlInfo = curl_getinfo($curlData);
-        try {
-            if (curl_errno($curlData)) {
-                throw new \Exception(curl_error($curlData));
-            }
-        } catch (\Exception $e) {
-            $this->logContent['runCommunicationException'] = $e->getMessage();
+
+        if (curl_errno($curlData)) {
+            $this->logContent['runCommunicationException'] = curl_error($curlData);
         }
+
         curl_close($curlData);
         return $result;
     }
 }
 
 
-/**
- * Views
- *
- * @category SDK
- * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
- * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
- * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
- */
+ /**
+  * Views
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
 trait Views
 {
     public $formDetails = [
@@ -1035,19 +1221,19 @@ trait Views
     protected function formSubmitElement($formName = '', $submitElement = 'button', $submitElementText = '')
     {
         switch ($submitElement) {
-            case 'link':
-                $element = "\n<a href='javascript:document.getElementById(\"" . $formName . "\").submit()'>" . addslashes($submitElementText) . "</a>";
-                break;
-            case 'button':
-                $element = "\n<button type='submit'>" . addslashes($submitElementText) . "</button>";
-                break;
-            case 'auto':
-                $element = "\n<button type='submit'>" . addslashes($submitElementText) . "</button>";
-                $element .= "\n<script language=\"javascript\" type=\"text/javascript\">document.getElementById(\"" . $formName . "\").submit();</script>";
-                break;
-            default:
-                $element = "\n<button type='submit'>" . addslashes($submitElementText) . "</button>";
-                break;
+        case 'link':
+            $element = "\n<a href='javascript:document.getElementById(\"" . $formName ."\").submit()'>".addslashes($submitElementText)."</a>";
+            break;
+        case 'button':
+            $element = "\n<button type='submit'>".addslashes($submitElementText)."</button>";
+            break;
+        case 'auto':
+            $element = "\n<button type='submit'>".addslashes($submitElementText)."</button>";
+            $element .= "\n<script language=\"javascript\" type=\"text/javascript\">document.getElementById(\"" . $formName . "\").submit();</script>";
+            break;
+        default :
+            $element = "\n<button type='submit'>".addslashes($submitElementText)."</button>";
+            break;
         }
         return $element;
     }
@@ -1087,15 +1273,15 @@ trait Views
 }
 
 
-/**
- * Logger
- *
- * @category SDK
- * @package  SimplePayV2_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
- * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
- * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
- */
+ /**
+  * Logger
+  *
+  * @category SDK
+  * @package  SimplePayV2_SDK
+  * @author   SimplePay IT Support <itsupport@simplepay.com>
+  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
+  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
+  */
 trait Logger
 {
 
@@ -1117,22 +1303,18 @@ trait Logger
             $log = $this->logContent;
         }
 
-        $date = @date('Y-m-d H:i:s', time());
-        $logFile = $this->config['logPath'] . '/' . @date('Ymd', time()) . '.log';
+        $date = date('Y-m-d H:i:s', time());
+        $logFile = $this->config['logPath'] . '/' . date('Ymd', time()) . '.log';
 
-        try {
-            if (!is_writable($this->config['logPath'])) {
+        if (!is_writable($this->config['logPath'])) {
+            $write = false;
+            $this->logContent['logFile'] = 'Folder is not writable: ' . $this->config['logPath'];
+        }
+        if (file_exists($logFile)) {
+            if (!is_writable($logFile)) {
                 $write = false;
-                throw new \Exception('Folder is not writable: ' . $this->config['logPath']);
+                $this->logContent['logFile'] ='File is not writable: ' . $logFile;
             }
-            if (file_exists($logFile)) {
-                if (!is_writable($logFile)) {
-                    $write = false;
-                    throw new \Exception('File is not writable: ' . $logFile);
-                }
-            }
-        } catch (\Exception $e) {
-            $this->logContent['logFile'] = $e->getMessage();
         }
 
         if ($write) {
@@ -1196,12 +1378,8 @@ trait Logger
      */
     protected function logToFile($logFile = '', $logText = '')
     {
-        try {
-            if (!file_put_contents($logFile, $logText, FILE_APPEND | LOCK_EX)) {
-                throw new \Exception('Log write error');
-            }
-        } catch (\Exception $e) {
-            $this->logContent['logToFile'] = $e->getMessage();
+        if (!file_put_contents($logFile, $logText, FILE_APPEND | LOCK_EX)) {
+            $this->logContent['logToFile'] = 'Log write error';
         }
         unset($logFile, $logText);
     }
@@ -1213,7 +1391,7 @@ trait Logger
  *
  * @category SDK
  * @package  SimplePayV21_SDK
- * @author   SimplePay IT Support <itsupport@otpmobil.com>
+ * @author   SimplePay IT Support <itsupport@simplepay.com>
  * @license  http://www.gnu.org/licenses/gpl-3.0.html  GNU GENERAL PUBLIC LICENSE (GPL V3.0)
  * @link     http://simplepartner.hu/online_fizetesi_szolgaltatas.html
  */
