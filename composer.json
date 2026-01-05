@@ -13,14 +13,17 @@
         }
     ],
     "minimum-stability": "dev",
-     "require": {
- 	"php": "~8.1.0|~8.2.0|~8.3.0|~8.4.0||~8.5.0"
+    "require": {
+ 	    "php": "~8.1.0|~8.2.0|~8.3.0|~8.4.0||~8.5.0"
     },
     "type": "library",
     "license": [
-	"Apache-2.0"
+	    "Apache-2.0"
     ],
     "autoload": {
+        "classmap": [
+            "src/"
+        ],
         "psr-4": {
             "SimplePay\\": "src/"
         }
