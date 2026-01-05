@@ -1,4 +1,4 @@
-# OTP Simplepay SDK
+# OTP SimplePay SDK
 
 ![](https://simplepay.hu/wp-content/uploads/2019/09/simpleLogo-e1569844953356.png)
 
